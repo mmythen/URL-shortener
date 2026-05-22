@@ -1,5 +1,4 @@
 import sqlite3
-import base62
 
 def get_db():
     conn = sqlite3.connect('database.db')
