@@ -1,12 +1,24 @@
-from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from db import get_db, init_db
-from base62 import encode, decode
-import os
+from psycopg2.extras import RealDictCursor
+from db import get_db, init_db, connection_pool
+from base62 import encode
 
-app = FastAPI()
-init_db()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Starting up: Initializing database...")
+    init_db()
+    
+    yield
+    
+    print("Shutting down: Closing database connection pool...")
+    if connection_pool:
+        connection_pool.closeall()
+
+app = FastAPI(lifespan=lifespan)
 
 # define form of POST request
 class ShortenRequest(BaseModel):
@@ -14,72 +26,60 @@ class ShortenRequest(BaseModel):
 
 # LONG URL -> SHORT URL
 @app.post('/shorten')
-def shorten_url(request: ShortenRequest):
+def shorten_url(request: ShortenRequest, conn = Depends(get_db)):
     url = request.url
-    conn = get_db()
 
     # simple valid url validation for now
     if not url.startswith('http'):
         raise HTTPException(status_code=400, detail='Invalid URL')
 
-    # check if given URL has already been converted
-    existing = conn.execute(
-        'SELECT * FROM urls WHERE long_url = ?', (url,)
-    ).fetchone()
-    if existing:
-        conn.close()
-        return { 'short_url': f'http://localhost:8000/{existing["short_code"]}' }
+    with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+        cursor.execute('SELECT * FROM urls WHERE long_url = %s', (url,))
+        existing = cursor.fetchone()
+        
+        # check if given URL has already been converted
+        if existing:
+            return { 'short_url': f'http://localhost:8000/{existing["short_code"]}' }
 
-    # insert url into db to get ID
-    cursor = conn.execute(
-        'INSERT INTO urls (long_url) VALUES (?)', (url,)
-    )
-    conn.commit()
-    row_id = cursor.lastrowid
-
-    # get updated short URL and save back into DB
-    short_code = encode(row_id)
-    conn.execute(
-        'UPDATE urls SET short_code = ? WHERE id = ?', (short_code, row_id)
-    )
-    conn.commit()
-    conn.close()
+        # insert and get the id
+        cursor.execute(
+            'INSERT INTO urls (long_url) VALUES (%s) RETURNING id', (url,)
+        )
+        row_id = cursor.fetchone()['id']
+        
+        # generate short code
+        short_code = encode(row_id)
+        cursor.execute(
+            'UPDATE urls SET short_code = %s WHERE id = %s', (short_code, row_id)
+        )
+        conn.commit()
 
     return { 'short_url': f'http://localhost:8000/{short_code}' }
 
 # SHORT URL -> LONG URL
 @app.get('/{short_code}')
-def redirect(short_code: str):
-    conn = get_db()
+def redirect(short_code: str, conn = Depends(get_db)):
+    with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+        cursor.execute('SELECT * FROM urls WHERE short_code = %s', (short_code,))
+        row = cursor.fetchone()
 
-    # get row of short code
-    row = conn.execute(
-        'SELECT * FROM urls WHERE short_code = ?', (short_code,)
-    ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail='Short code not found')
+        
+        cursor.execute(
+            'UPDATE urls SET click_count = click_count + 1 WHERE short_code = %s', (short_code, )
+        )
+        conn.commit()
 
-    if not row:
-        raise HTTPException(status_code=404, detail='Short code not found')
-    
-    conn.execute(
-        'UPDATE urls SET click_count = click_count + 1 WHERE short_code = ?', (short_code, )
-    )
-    conn.commit()
-    conn.close()
-
-    # send user to url
     return RedirectResponse(url=row['long_url'], status_code=302)
 
 
 # STATS OF URL
 @app.get('/{short_code}/stats')
-def stats(short_code: str):
-    conn = get_db()
-
-    row = conn.execute(
-        'SELECT * FROM urls WHERE short_code = ?', (short_code,)
-    ).fetchone()
-
-    conn.close()
+def stats(short_code: str, conn = Depends(get_db)):
+    with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+        cursor.execute('SELECT * FROM urls WHERE short_code = %s', (short_code,))
+        row = cursor.fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail='Short code not found')
@@ -88,5 +88,5 @@ def stats(short_code: str):
         'short_code': row['short_code'],
         'long_url': row['long_url'],
         'click_count': row['click_count'],
-        'created_at': row['created_at']
+        'created_at': row['created_at'].isoformat() if row['created_at'] else None
     }
