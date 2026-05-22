@@ -7,7 +7,7 @@ from psycopg2.extras import RealDictCursor
 db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
 
 try:
-    connection_pool = pool.SimpleConnectionPool(1, 10, db_url)
+    connection_pool = pool.SimpleConnectionPool(1, 10, dsn=db_url)
 except psycopg2.DatabaseError as e:
     print(f'Error connecting to database: {e}')
     connection_pool = None

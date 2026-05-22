@@ -1,10 +1,13 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel
 from psycopg2.extras import RealDictCursor
 from db import get_db, init_db, connection_pool
 from base62 import encode
+import os
+
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
 
 @asynccontextmanager
@@ -24,6 +27,45 @@ app = FastAPI(lifespan=lifespan)
 class ShortenRequest(BaseModel):
     url : str
 
+# landing page UI
+@app.get("/", response_class=HTMLResponse)
+def home():
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>URL Shortener</title>
+    </head>
+    <body>
+        <h2>URL Shortener</h2>
+
+        <input id="url" type="text" placeholder="Enter URL" style="width:300px;" />
+        <button onclick="shorten()">Shorten</button>
+
+        <p id="result"></p>
+
+        <script>
+            async function shorten() {
+                const url = document.getElementById("url").value;
+
+                const res = await fetch("/shorten", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ url })
+                });
+
+                const data = await res.json();
+
+                document.getElementById("result").innerHTML =
+                    `<a href="${data.short_url}" target="_blank">${data.short_url}</a>`;
+            }
+        </script>
+    </body>
+    </html>
+    """
+
 # LONG URL -> SHORT URL
 @app.post('/shorten')
 def shorten_url(request: ShortenRequest, conn = Depends(get_db)):
@@ -39,7 +81,7 @@ def shorten_url(request: ShortenRequest, conn = Depends(get_db)):
         
         # check if given URL has already been converted
         if existing:
-            return { 'short_url': f'http://localhost:8000/{existing["short_code"]}' }
+            return { 'short_url': f'{BASE_URL}/{existing["short_code"]}' }
 
         # insert and get the id
         cursor.execute(
@@ -54,7 +96,7 @@ def shorten_url(request: ShortenRequest, conn = Depends(get_db)):
         )
         conn.commit()
 
-    return { 'short_url': f'http://localhost:8000/{short_code}' }
+    return { 'short_url': f'{BASE_URL}/{short_code}' }
 
 # SHORT URL -> LONG URL
 @app.get('/{short_code}')
