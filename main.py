@@ -15,12 +15,19 @@ class ShortenRequest(BaseModel):
 @app.post('/shorten')
 def shorten_url(request: ShortenRequest):
     url = request.url
+    conn = get_db()
 
     # simple valid url validation for now
     if not url.startswith('http'):
         raise HTTPException(status_code=400, detail='Invalid URL')
-    
-    conn = get_db()
+
+    # check if given URL has already been converted
+    existing = conn.execute(
+        'SELECT * FROM urls WHERE long_url = ?', (url,)
+    ).fetchone()
+    if existing:
+        conn.close()
+        return { 'short_url': f'http://localhost:8000/{existing["short_code"]}' }
 
     # insert url into db to get ID
     cursor = conn.execute(
