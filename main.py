@@ -58,3 +58,23 @@ def redirect(short_code: str):
     conn.close()
 
     return RedirectResponse(url=row['long_url'], status_code=302)
+
+@app.get('/{short_code}/stats')
+def stats(short_code: str):
+    conn = get_db()
+
+    row = conn.execute(
+        'SELECT * FROM urls WHERE short_code = ?', (short_code,)
+    ).fetchone()
+
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail='Short code not found')
+
+    return {
+        'short_code': row['short_code'],
+        'long_url': row['long_url'],
+        'click_count': row['click_count'],
+        'created_at': row['created_at']
+    }
