@@ -12,4 +12,9 @@ def encode_base62(num):
     arr.reverse()
     return ''.join(arr)
 
-print(encode_base62())
+def decode_base62(s):
+    num = 0
+    for char in s:
+        num = num * 62 + CHARSET.index(char)
+    return num
+
