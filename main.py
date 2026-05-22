@@ -8,6 +8,7 @@ import os
 app = FastAPI()
 init_db()
 
+# define form of POST request
 class ShortenRequest(BaseModel):
     url : str
 
@@ -51,6 +52,7 @@ def shorten_url(request: ShortenRequest):
 def redirect(short_code: str):
     conn = get_db()
 
+    # get row of short code
     row = conn.execute(
         'SELECT * FROM urls WHERE short_code = ?', (short_code,)
     ).fetchone()
@@ -64,8 +66,11 @@ def redirect(short_code: str):
     conn.commit()
     conn.close()
 
+    # send user to url
     return RedirectResponse(url=row['long_url'], status_code=302)
 
+
+# STATS OF URL
 @app.get('/{short_code}/stats')
 def stats(short_code: str):
     conn = get_db()
