@@ -117,18 +117,31 @@ def redirect(short_code: str, conn = Depends(get_db)):
 
 
 # STATS OF URL
-@app.get('/{short_code}/stats')
+@app.get('/{short_code}/stats', response_class=HTMLResponse)
 def stats(short_code: str, conn = Depends(get_db)):
     with conn.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute('SELECT * FROM urls WHERE short_code = %s', (short_code,))
         row = cursor.fetchone()
-
     if not row:
         raise HTTPException(status_code=404, detail='Short code not found')
 
-    return {
-        'short_code': row['short_code'],
-        'long_url': row['long_url'],
-        'click_count': row['click_count'],
-        'created_at': row['created_at'].isoformat() if row['created_at'] else None
-    }
+    short_url = f"{BASE_URL}/{row['short_code']}"
+    created = row['created_at'].strftime('%b %d, %Y') if row['created_at'] else '—'
+
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Stats – {row['short_code']}</title>
+    </head>
+    <body>
+        <h2>Stats – {row['short_code']}</h2>
+        <p><b>Short URL:</b> <a href="{short_url}">{short_url}</a></p>
+        <p><b>Original URL:</b> {row['long_url']}</p>
+        <p><b>Clicks:</b> {row['click_count']}</p>
+        <p><b>Created:</b> {created}</p>
+        <br/>
+        <a href="/">← Back</a>
+    </body>
+    </html>
+    """
