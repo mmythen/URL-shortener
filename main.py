@@ -60,7 +60,7 @@ def home():
 
                 document.getElementById("result").innerHTML =
                     `<a href="${data.short_url}" target="_blank">${data.short_url}</a> ` +
-                    `<a href="${data.short_url}/stats">stats</a>`;
+                    `<a href="${data.short_url}/stats"><button>Stats</button></a>`;
             }
         </script>
     </body>
